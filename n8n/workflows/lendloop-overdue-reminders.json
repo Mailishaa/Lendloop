@@ -1,0 +1,104 @@
+{
+  "name": "LendLoop Overdue Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "cronExpression": "0 * * * *"
+      },
+      "name": "Overdue Reminders Schedule",
+      "type": "n8n-nodes-base.schedule",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = process.env.LENDLOOP_HMAC_SECRET || '';\nconst timestamp = Math.floor(Date.now() / 1000);\nconst rawBody = '';\nconst signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex');\nreturn [{ json: { timestamp: String(timestamp), signature } }];"
+      },
+      "name": "Prepare HMAC",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        470,
+        300
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.CONVEX_SITE_URL }}/api/n8n/overdue-loans",
+        "headerParameters": {
+          "X-LendLoop-Timestamp": "={{ $json.timestamp }}",
+          "X-LendLoop-Signature": "={{ $json.signature }}"
+        }
+      },
+      "name": "Fetch Overdue Loans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst https = require('https');\nconst nodemailer = require('nodemailer');\n\nconst overdue = Array.isArray($input.first.json) ? $input.first.json : [];\nconst secret = process.env.LENDLOOP_HMAC_SECRET || '';\nconst results = [];\n\nfunction postResult(result) {\n  return new Promise((resolve, reject) => {\n    const body = JSON.stringify(result);\n    const timestamp = Math.floor(Date.now() / 1000);\n    const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');\n    const req = https.request(\n      {\n        hostname: new URL(process.env.CONVEX_SITE_URL).hostname,\n        path: '/api/n8n/reminder-result',\n        method: 'POST',\n        headers: {\n          'Content-Type': 'application/json',\n          'X-LendLoop-Timestamp': String(timestamp),\n          'X-LendLoop-Signature': signature,\n        },\n      },\n      (res) => {\n        res.resume();\n        res.on('end', resolve);\n      },\n    );\n    req.on('error', reject);\n    req.end(body);\n  });\n}\n\n(async () => {\n  for (const loan of overdue) {\n    const result = { key: loan.reminderKey, loanId: loan.loanId, status: 'sent', detail: null };\n    try {\n      const transporter = nodemailer.createTransport({ jsonTransport: true });\n      await transporter.sendMail({\n        from: 'LendLoop <noreply@lendloop.local>',\n        to: loan.borrower.email,\n        subject: `LendLoop reminder: ${loan.toolName}`,\n        text: `This is a friendly reminder that you borrowed ${loan.toolName}.`,\n      });\n      await postResult(result);\n      results.push(result);\n    } catch (e) {\n      results.push({ key: loan.reminderKey, loanId: loan.loanId, status: 'failed', detail: String(e) });\n    }\n  }\n  return [{ json: { processed: results.length } }];\n})().then(() => [{ json: { processed: results.length } }]).catch(() => [{ json: { processed: 0 } }]);"
+      },
+      "name": "Send Reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        930,
+        300
+      ],
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Overdue Reminders Schedule": {
+      "main": [
+        [
+          {
+            "node": "Prepare HMAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare HMAC": {
+      "main": [
+        [
+          {
+            "node": "Fetch Overdue Loans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Overdue Loans": {
+      "main": [
+        [
+          {
+            "node": "Send Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reminders": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutionId": true
+  }
+}

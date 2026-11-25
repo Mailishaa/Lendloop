@@ -1,0 +1,71 @@
+{
+  "name": "LendLoop Request Notification",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "lendloop-request-notification",
+        "method": "post",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "name": "LendLoop Webhook",
+      "webhookId": "lendloop-request-notification",
+      "webhookPath": "lendloop-request-notification",
+      "webhookSubpath": ""
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first.json;\nreturn [{ json: body }];"
+      },
+      "name": "Process Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "responseBody": "={{ $json }}"
+      },
+      "name": "Respond",
+      "type": "n8n.nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        720,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "LendLoop Webhook": {
+      "main": [
+        [
+          {
+            "node": "Process Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Notification": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutionId": true
+  }
+}
